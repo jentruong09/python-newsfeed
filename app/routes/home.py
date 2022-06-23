@@ -1,5 +1,5 @@
 # import the functions Blueprint() and render_template() from the Flask module
-from flask import Blueprint, render_template
+from flask import Blueprint, render_template, session, redirect
 from app.models import Post
 from app.db import get_db
 
@@ -21,12 +21,18 @@ def index():
 
   return render_template(
     'homepage.html',
-    posts=posts
-  )
+    posts=posts,
+    loggedIn=session.get('loggedIn')
+  ) 
 
+# redirect users away from /login if they're already logged in
 @bp.route('/login')
 def login():
-  return render_template('login.html')
+  # not logged in yet
+  if session.get('loggedIn') is None:
+    return render_template('login.html')
+
+  return redirect('/dashboard')
 
 # This route uses a parameter. 
 # In the URL, <id> represents the parameter. To capture the value, we include it as a function parameter—specifically, single(id)
@@ -41,7 +47,8 @@ def single(id):
   # render single post template
   return render_template(
     'single-post.html',
-    post=post
+    post=post,
+    loggedIn=session.get('loggedIn')
   )
 # we use the filter() method on the connection object to specify the SQL WHERE clause, and we end by using the one() method instead of all(). 
 # We then pass the single post object to the single-post.html template. 
