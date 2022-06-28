@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify, session
-from app.models import User
+from app.models import User, Post, Comment, Vote
 from app.db import get_db
 import sys
+from app.utils.auth import login_required
 
 # define all the API endpoints for the app
 bp = Blueprint('api', __name__, url_prefix='/api')
@@ -74,3 +75,125 @@ def login():
   session['loggedIn'] = True
 
   return jsonify(id = user.id)
+
+
+# takes care of the first step: connecting to the database. 
+# Because this is a POST route, we can capture the posted data by using the get_json() method and create a new comment by using the returned dictionary. 
+# Because the creation of a comment can fail, we want to wrap it in a try...except statement
+@bp.route('/comments', methods=['POST'])
+@login_required
+def comment():
+  data = request.get_json()
+  db = get_db()
+
+  # comment_text and post_id values come from the front end, but the session stores the user_id value. 
+  # Recall that db.commit() performs the INSERT against the database and that db.rollback() discards the pending commit if it fails
+  try:
+  # create a new comment
+    newComment = Comment(
+      comment_text = data['comment_text'],
+      post_id = data['post_id'],
+      user_id = session.get('user_id')
+    )
+
+    db.add(newComment)
+    db.commit()
+  except:
+    print(sys.exc_info()[0])
+
+    db.rollback()
+    return jsonify(message = 'Comment failed'), 500
+  
+  return jsonify(id = newComment.id)
+
+
+# An upvote creates a new record in the votes table, but the Post model ultimately uses that information. We'll thus define this action as a PUT route for posts.
+@bp.route('/posts/upvote', methods=['PUT'])
+@login_required
+def upvote():
+  data = request.get_json()
+  db = get_db()
+
+  try:
+    # create a new vote with incoming id and session id
+    newVote = Vote(
+      post_id = data['post_id'],
+      user_id = session.get('user_id')
+    )
+
+    db.add(newVote)
+    db.commit()
+  except:
+    print(sys.exc_info()[0])
+
+    db.rollback()
+    return jsonify(message = 'Upvote failed'), 500
+
+  return '', 204
+
+# route for creating new posts—a process that closely follows the one that we created for new comments and upvotes
+@bp.route('/posts', methods=['POST'])
+@login_required
+def create():
+  data = request.get_json()
+  db = get_db()
+
+  try:
+    # create a new post
+    newPost = Post(
+      title = data['title'],
+      post_url = data['post_url'],
+      user_id = session.get('user_id')
+    )
+
+    db.add(newPost)
+    db.commit()
+  except:
+    print(sys.exc_info()[0])
+
+    db.rollback()
+    return jsonify(message = 'Post failed'), 500
+
+  return jsonify(id = newPost.id)
+
+
+# create the API route that will update the details of a post. Updating differs from creating a new post, of course, so we'll step through this a bit more slowly
+@bp.route('/posts/<id>', methods=['PUT'])
+@login_required
+def update(id):
+  data = request.get_json()
+  db = get_db()
+
+  # when you make updates, SQLAlchemy requires you to query the database for the corresponding record, update the record like you'd update a normal object, and then recommit it.
+  try:
+    # retrieve post and update title property
+    post = db.query(Post).filter(Post.id == id).one()
+    post.title = data['title']
+    db.commit()
+  except:
+    print(sys.exc_info()[0])
+
+    db.rollback()
+    return jsonify(message = 'Post not found'), 404
+
+  return '', 204
+
+
+# API route for deleting posts. Like updating, deleting in SQLAlchemy requires us to first query for the corresponding record. 
+# We then pass the returned object to a db.delete() method before committing the change.
+@bp.route('/posts/<id>', methods=['DELETE'])
+@login_required
+def delete(id):
+  db = get_db()
+
+  try:
+    # delete post from db
+    db.delete(db.query(Post).filter(Post.id == id).one())
+    db.commit()
+  except:
+    print(sys.exc_info()[0])
+
+    db.rollback()
+    return jsonify(message = 'Post not found'), 404
+
+  return '', 204
